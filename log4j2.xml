@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN" packages="com.example">
+    <Appenders>
+        <!-- Console Appender for fallback or other logs -->
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
+        </Console>
+        <!-- CloudWatch Appender -->
+        <CloudWatchAppender name="CloudWatch"
+                           accessKeyId="your-access-key-id"
+                           secretAccessKey="your-secret-access-key"
+                           logGroupName="your-log-group-name"
+                           logStreamName="your-log-stream-name"
+                           region="us-east-1">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
+        </CloudWatchAppender>
+    </Appenders>
+    <Loggers>
+        <!-- Enable DEBUG for specific package -->
+        <Logger name="com.example" level="DEBUG" additivity="false">
+            <AppenderRef ref="CloudWatch"/>
+        </Logger>
+        <!-- Root logger for other logs -->
+        <Root level="INFO">
+            <AppenderRef ref="Console"/>
+        </Root>
+    </Loggers>
+</Configuration>
