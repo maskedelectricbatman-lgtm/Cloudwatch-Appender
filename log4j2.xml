@@ -1,28 +1,12 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Configuration status="DEBUG" packages="com.logging">
-    <Appenders>
-        <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
-        </Console>
-        <CloudWatchAppender name="CloudWatch"
-                           accessKeyId="your-access-key-id"
-                           secretAccessKey="your-secret-access-key"
-                           logGroupName="your-log-group-name"
-                           logStreamName="your-log-stream-name"
-                           region="us-east-1">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
-        </CloudWatchAppender>
-        <Async name="AsyncCloudWatch">
-            <AppenderRef ref="CloudWatch"/>
-        </Async>
-    </Appenders>
-    <Loggers>
-        <Logger name="com.example" level="INFO" additivity="false">
-            <AppenderRef ref="AsyncCloudWatch"/>
-            <AppenderRef ref="Console"/> <!-- Added for visibility during debugging -->
-        </Logger>
-        <Root level="INFO">
-            <AppenderRef ref="Console"/>
-        </Root>
-    </Loggers>
+<Configuration status="WARN">
+  <Appenders>
+    <CloudWatchAppender name="CloudWatch" logGroupName="MyLogGroup" logStreamName="MyLogStream" region="us-east-1" accessKeyId="YOUR_ACCESS_KEY" secretAccessKey="YOUR_SECRET_KEY" flushIntervalSeconds="5">
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %p %c{1.} [%t] %m%n" />
+    </CloudWatchAppender>
+  </Appenders>
+  <Loggers>
+    <Root level="info">
+      <AppenderRef ref="CloudWatch" />
+    </Root>
+  </Loggers>
 </Configuration>
