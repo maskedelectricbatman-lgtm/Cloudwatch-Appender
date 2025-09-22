@@ -22,6 +22,7 @@ import org.apache.logging.log4j.core.config.plugins.PluginElement;
 import org.apache.logging.log4j.core.config.plugins.PluginFactory;
 import org.apache.logging.log4j.core.layout.PatternLayout;
 
+import com.mulesoft.mule.runtime.module.encryption.SecurePropertiesPlaceholderConfigurer; // Mule-specific
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -71,6 +72,7 @@ public class CloudWatchAppender extends AbstractAppender {
             @PluginAttribute("region") String regionStr,
             @PluginAttribute("accessKeyId") String accessKeyId,
             @PluginAttribute("secretAccessKey") String secretAccessKey,
+            @PluginAttribute("encryptionKey") String encryptionKey,
             @PluginAttribute(value = "flushIntervalSeconds", defaultLong = 5) long flushIntervalSeconds,
             @PluginElement("Layout") Layout<? extends Serializable> layout,
             @PluginElement("Filter") Filter filter,
@@ -98,11 +100,29 @@ public class CloudWatchAppender extends AbstractAppender {
 
         Region region = Region.of(regionStr);
         AwsCredentialsProvider credentialsProvider;
+
+        // Handle encrypted credentials for Mulesoft
         if (accessKeyId != null && !accessKeyId.isEmpty() && secretAccessKey != null && !secretAccessKey.isEmpty()) {
-            AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKeyId, secretAccessKey);
+            String decryptedAccessKeyId = accessKeyId;
+            String decryptedSecretAccessKey = secretAccessKey;
+
+            // Check if running in Mulesoft environment and encryptionKey is provided
+            if (encryptionKey != null && !encryptionKey.isEmpty()) {
+                try {
+                    SecurePropertiesPlaceholderConfigurer configurer = new SecurePropertiesPlaceholderConfigurer();
+                    configurer.setKey(encryptionKey);
+                    decryptedAccessKeyId = configurer.decrypt(accessKeyId);
+                    decryptedSecretAccessKey = configurer.decrypt(secretAccessKey);
+                } catch (Exception e) {
+                    LOGGER.error("Failed to decrypt AWS credentials", e);
+                    return null;
+                }
+            }
+
+            AwsBasicCredentials credentials = AwsBasicCredentials.create(decryptedAccessKeyId, decryptedSecretAccessKey);
             credentialsProvider = StaticCredentialsProvider.create(credentials);
         } else {
-            credentialsProvider = DefaultCredentialsProvider.create();
+            credentialsProvider = DefaultCredentialsProvider.create(); // Fallback to IAM role or default provider
         }
 
         CloudWatchLogsClient client = CloudWatchLogsClient.builder()
