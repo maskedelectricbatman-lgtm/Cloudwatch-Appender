@@ -1,28 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Configuration status="DEBUG" packages="com.logging">
+<Configuration status="WARN" packages="com.example.logging">
     <Appenders>
+        <!-- Console Appender for local development -->
         <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
         </Console>
-        <CloudWatchAppender name="CloudWatch"
-                           accessKeyId="your-access-key-id"
-                           secretAccessKey="your-secret-access-key"
-                           logGroupName="your-log-group-name"
-                           logStreamName="your-log-stream-name"
-                           region="us-east-1">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
-        </CloudWatchAppender>
-        <Async name="AsyncCloudWatch">
-            <AppenderRef ref="CloudWatch"/>
-        </Async>
+        
+        <!-- CloudWatch Appender using IAM Role (recommended for EC2/ECS) -->
+        <CloudWatch name="CloudWatchRole" 
+                   region="us-east-1"
+                   logGroupName="/my-application/logs"
+                   logStreamName="application-stream-${date:yyyy-MM-dd}"
+                   useRole="true"
+                   ignoreExceptions="true">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </CloudWatch>
+        
+        <!-- CloudWatch Appender using explicit credentials -->
+        <CloudWatch name="CloudWatchCredentials" 
+                   region="us-west-2"
+                   logGroupName="/my-application/logs"
+                   logStreamName="application-stream-${date:yyyy-MM-dd}"
+                   accessKey="${env:AWS_ACCESS_KEY_ID}"
+                   secretKey="${env:AWS_SECRET_ACCESS_KEY}"
+                   useRole="false"
+                   ignoreExceptions="true">
+            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </CloudWatch>
     </Appenders>
+    
     <Loggers>
-        <Logger name="com.example" level="INFO" additivity="false">
-            <AppenderRef ref="AsyncCloudWatch"/>
-            <AppenderRef ref="Console"/> <!-- Added for visibility during debugging -->
-        </Logger>
+        <!-- Root logger configuration -->
         <Root level="INFO">
             <AppenderRef ref="Console"/>
+            <!-- Use either CloudWatchRole OR CloudWatchCredentials, not both -->
+            <AppenderRef ref="CloudWatchRole"/>
         </Root>
+        
+        <!-- Specific logger for your application -->
+        <Logger name="com.example" level="DEBUG" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="CloudWatchRole"/>
+        </Logger>
     </Loggers>
 </Configuration>
