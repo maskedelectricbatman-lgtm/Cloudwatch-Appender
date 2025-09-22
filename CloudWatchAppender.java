@@ -1,4 +1,5 @@
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -43,19 +44,23 @@ public class CloudWatchAppender extends AbstractAppender {
     private final CloudWatchLogsClient client;
     private final BlockingQueue<InputLogEvent> queue = new LinkedBlockingQueue<>(10000); // Max queue size
     private final Layout<? extends Serializable> layout;
+    private final long flushIntervalSeconds;
     private volatile String nextSequenceToken = null;
     private ScheduledExecutorService executor;
 
     private static final Pattern SEQUENCE_TOKEN_PATTERN = Pattern.compile("The given sequenceToken is invalid. The next expected sequenceToken is: '(\\d+)'");
+    private static final int MAX_BATCH_SIZE_BYTES = 1_048_576; // 1MB
+    private static final int MAX_EVENT_SIZE_BYTES = 262_144; // 256KB
 
     protected CloudWatchAppender(String name, Filter filter, Layout<? extends Serializable> layout,
                                  boolean ignoreExceptions, Property[] properties, String logGroupName,
-                                 String logStreamName, CloudWatchLogsClient client) {
+                                 String logStreamName, CloudWatchLogsClient client, long flushIntervalSeconds) {
         super(name, filter, layout, ignoreExceptions, properties);
         this.logGroupName = logGroupName;
         this.logStreamName = logStreamName;
         this.client = client;
         this.layout = layout;
+        this.flushIntervalSeconds = flushIntervalSeconds;
     }
 
     @PluginFactory
@@ -66,6 +71,7 @@ public class CloudWatchAppender extends AbstractAppender {
             @PluginAttribute("region") String regionStr,
             @PluginAttribute("accessKeyId") String accessKeyId,
             @PluginAttribute("secretAccessKey") String secretAccessKey,
+            @PluginAttribute(value = "flushIntervalSeconds", defaultLong = 5) long flushIntervalSeconds,
             @PluginElement("Layout") Layout<? extends Serializable> layout,
             @PluginElement("Filter") Filter filter,
             @PluginAttribute(value = "ignoreExceptions", defaultBoolean = true) boolean ignoreExceptions) {
@@ -128,15 +134,16 @@ public class CloudWatchAppender extends AbstractAppender {
         }
 
         return new CloudWatchAppender(name, filter, layout, ignoreExceptions, Property.EMPTY_ARRAY,
-                logGroupName, logStreamName, client);
+                logGroupName, logStreamName, client, flushIntervalSeconds);
     }
 
     @Override
     public void append(LogEvent event) {
         try {
             String message = layout.toSerializable(event).toString();
-            if (message.length() > 262144) { // Max event size 256KB
-                message = message.substring(0, 262144);
+            if (message.getBytes(StandardCharsets.UTF_8).length > MAX_EVENT_SIZE_BYTES) {
+                message = message.substring(0, MAX_EVENT_SIZE_BYTES - 1);
+                LOGGER.warn("Truncated log message exceeding {} bytes", MAX_EVENT_SIZE_BYTES);
             }
             InputLogEvent logEvent = InputLogEvent.builder()
                     .message(message)
@@ -154,7 +161,7 @@ public class CloudWatchAppender extends AbstractAppender {
     public void start() {
         super.start();
         executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleWithFixedDelay(this::flush, 5, 5, TimeUnit.SECONDS); // Flush every 5 seconds
+        executor.scheduleWithFixedDelay(this::flush, flushIntervalSeconds, flushIntervalSeconds, TimeUnit.SECONDS);
     }
 
     @Override
@@ -183,21 +190,42 @@ public class CloudWatchAppender extends AbstractAppender {
         // Sort by timestamp (required by AWS)
         events.sort(Comparator.comparingLong(InputLogEvent::timestamp));
 
-        // Simple size check (approximate, for demo; in production, calculate exact bytes)
-        if (events.size() > 10000) {
-            events = events.subList(0, 10000); // Max 10k events per put
+        // Enforce batch size limits
+        List<InputLogEvent> batch = new ArrayList<>();
+        long batchSizeBytes = 0;
+        for (InputLogEvent event : events) {
+            long eventSize = event.message().getBytes(StandardCharsets.UTF_8).length + 26; // 26 bytes overhead per event
+            if (batch.size() >= 10000 || batchSizeBytes + eventSize > MAX_BATCH_SIZE_BYTES) {
+                if (!batch.isEmpty()) {
+                    sendBatch(batch);
+                    batch.clear();
+                    batchSizeBytes = 0;
+                }
+            }
+            if (batch.size() < 10000 && batchSizeBytes + eventSize <= MAX_BATCH_SIZE_BYTES) {
+                batch.add(event);
+                batchSizeBytes += eventSize;
+            } else {
+                LOGGER.warn("Dropped log event exceeding batch limits (10k events or 1MB)");
+            }
         }
 
+        if (!batch.isEmpty()) {
+            sendBatch(batch);
+        }
+    }
+
+    private void sendBatch(List<InputLogEvent> batch) {
         PutLogEventsRequest request = PutLogEventsRequest.builder()
                 .logGroupName(logGroupName)
                 .logStreamName(logStreamName)
-                .logEvents(events)
+                .logEvents(batch)
                 .sequenceToken(nextSequenceToken)
                 .build();
 
         boolean success = false;
         int retries = 0;
-        while (!success && retries < 3) { // Retry up to 3 times for sequence token issues
+        while (!success && retries < 3) {
             try {
                 PutLogEventsResponse response = client.putLogEvents(request);
                 nextSequenceToken = response.nextSequenceToken();
