@@ -1,6 +1,13 @@
 <Configuration status="WARN">
   <Appenders>
-    <CloudWatchAppender name="CloudWatch" logGroupName="MyLogGroup" logStreamName="MyLogStream" region="us-east-1" accessKeyId="YOUR_ACCESS_KEY" secretAccessKey="YOUR_SECRET_KEY" flushIntervalSeconds="5">
+    <CloudWatchAppender name="CloudWatch"
+                       logGroupName="MyLogGroup"
+                       logStreamName="${sys:mule.app.name}-${sys:mule.worker.id}"
+                       region="us-east-1"
+                       accessKeyId="${sys:aws.accessKeyId}"
+                       secretAccessKey="${sys:aws.secretAccessKey}"
+                       encryptionKey="${sys:aws.encryptionKey}"
+                       flushIntervalSeconds="2">
       <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %p %c{1.} [%t] %m%n" />
     </CloudWatchAppender>
   </Appenders>
